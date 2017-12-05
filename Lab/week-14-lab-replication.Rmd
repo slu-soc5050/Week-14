@@ -1,0 +1,229 @@
+---
+title: "Lab-14 Replication"
+output: html_notebook
+---
+
+## Introduction
+This is the replication file for lab-14.
+
+## Dependencies
+We need two packages for checking our models - `car` and `lmtest` - as well as `dplyr`.
+
+```{r}
+library(dplyr)
+
+library(car)
+library(lmtest)
+library(sandwich)
+```
+
+## Data
+This assignment uses the `auto17` data from the `testDriveR` package.
+
+```{r}
+library(testDriveR)
+autoData <- auto17
+```
+
+## Part 1
+### Question 1
+The following code fits the same model as model 3 from the previous lab, and summarizes the results.
+
+```{r}
+model3 <- lm(fuelCost ~ displ+cyl+gears+hwyFE, data = autoData)
+summary(model3)
+```
+
+We'll use this model, which has a particularly high $R^2$ value, as the starting place for this assignment.
+
+## Part 2
+This section is focused on checking for model specification issues. We're primarily concerned here with non-linearity, the patterning in the residuals, and multi-collinearity.
+
+### Question 2
+We'll start by checking for non-linearity. It only really makes sense to look at our continuous variables. We only have one, `hwyFE`, so we'll use the `crPlot()` function to produce output for that test. If we had multiple continuous variables, using `crPlots()` might make more sense.
+
+```{r}
+crPlot(model3, variable = "hwyFE")
+```
+
+The plot shows only a small amount of deviation from linearity, so this is not an area for us to be concerned about.
+
+### Question 3
+We can use a special Q-Q plot from the `car` package to check normality in the residuals. 
+
+```{r}
+qqPlot(model3)
+```
+
+We have some particularly significant departures from normal in our residuals, especially on the righthand side of the distribution.
+
+### Question 4
+Next, we want to check to see whether heteroskedasticity is a concern in our model. We can do this with both a hypothesis test (the White's test, since we do not find that our residuals are normally distributed) and with a diagnostic plot.
+
+```{r}
+bptest(model3, ~ displ*cyl*gears*hwyFE+I(displ^2)+I(cyl^2)+I(gears^2)+I(hwyFE^2), data = autoData)
+```
+
+The findings of the White's test ($BP = 348.62, p < .001$) suggest that heteroskedastic errors are a concern.
+
+```{r}
+plot(model3, which=1)
+```
+
+The residual plot shows a degree of pattering in the data as well, which is consistent with the White's test's findings. Heterskedastic errors are indeed a concern here.
+
+### Question 5
+We also want to know if our residuals are correlated with each other. We can test for autocorrelation using the Durbin-Watson test:
+
+```{r}
+durbinWatsonTest(model3)
+```
+
+The results of the Durbin-Watson test ($DW = 1.018, p < .001$) suggest that autocorrelation is indeed a concern in the model as well.
+
+### Question 6
+Finally, we want to check for multi-collinearity in our data. We need to look both at the individual VIF values as well as their average.
+
+```{r}
+sqrt(vif(model3))
+```
+
+All of the VIF values are below 10, which is important.
+
+```{r}
+mean(sqrt(vif(model3)))
+```
+
+However, the average VIF value is greater than one. This suggests some minor multi-collinearity in our model.
+
+### Question 7
+Overall, we should be most concerned about the non-normality, heteroskedasticity, and autocorrelation present in our residuals. There is a strong indication here that there is a model mis-specification that should be addressed. It is not clear that any variables need to be removed. Rather, looking for additional variables and/or using robust standard errors would be a prudent approach.
+
+## Part 3
+In addition to model specification issues, we also want to look for observations that wield outsize influence on our model. 
+
+### Question 8 
+The following function begins that process by looking for outliers.
+
+```{r}
+outlierTest(model3)
+```
+
+The Bonferonni test output suggests that three observations warrent further consideration:
+
+```{r}
+bonferonniPoints <- c(311, 814, 1158)
+filter(autoData, row_number() %in% bonferonniPoints)
+```
+
+### Question 9
+We should complete a similar diagnostic process for leverage. We can look for observations that are two times the average leverage:
+
+```{r}
+leveragePoints <- which(hatvalues(model3) > (3*3)/1216)
+filter(autoData, row_number() %in% leveragePoints)
+```
+
+We can also look for obserations that are three times the average leverage:
+
+```{r}
+leveragePoints <- which(hatvalues(model3) > (3*3)/1216)
+filter(autoData, row_number() %in% leveragePoints)
+```
+
+In both cases, we see a particularly large number of points. It would not be prudent to remove all of them, which would mean, for example, removing 12% of our sample size that meets the three times the average leverage. There is a tradeoff here between sacrificing model accuracy (with leverage) and sample size. Another approach would be to remove only the worst offenders. For example, in the plot, we can see that there are a few points that are particularly high:
+
+```{r}
+plot(hatvalues(model3))
+abline(h = c(2,3)*3/1216, col="red", lty=2)
+```
+
+Thse points begin above hatvalues of .02:
+
+```{r}
+leveragePoints2 <- which(hatvalues(model3) > .02)
+filter(autoData, row_number() %in% leveragePoints2)
+```
+
+These observations have the largest leverage values in the sample, and warrent further inspections.
+
+### Question 10
+We should also check for influence in the form of Cook's Distance. Recall that values over 1 are particularly problematic, and values over .5 are concerning.
+
+```{r}
+which(cooks.distance(model3) > .5)
+```
+
+We don't have any values over either of these cutoff points.
+
+```{r}
+plot(cooks.distance(model3))
+abline(h = c(1, .5), col="red", lty=2)
+```
+
+One of the ways to interpret Cook's Distance is to look at the most extreme values even if they fall below the .5 cutoff. The plot above shows a number of points above .03 that stand out from the rest of the data.
+
+```{r}
+influencePoints <- which(cooks.distance(model3) > .03)
+filter(autoData, row_number() %in% influencePoints)
+```
+
+### Question 11
+A number of observations show up in multiple lists of outliers, leverage, and influence. Additionally, a number of points are only high in leverage, but those values are so high that we should remove them anyway:
+* 19960
+* 20456
+* 20503
+* 20508
+* 21018
+* 21294
+* 21298
+* 21311
+* 21365
+* 21386
+
+These two points show up under influence but not under the other categories. We'll retain them for now.
+* 20706
+* 20913
+
+```{r}
+unusualObs <- c(19960, 20456, 20503, 20508, 21018, 21294, 21298, 21311, 21365, 21386)
+
+autoData %>%
+  mutate(insample = ifelse(id %in% unusualObs, TRUE, FALSE)) %>%
+  filter(insample == FALSE) -> autoSub
+```
+
+## Part 4
+### Question 12
+The followiing syntax re-fits the model without the problematic observations:
+
+```{r}
+model4 <- lm(fuelCost ~ displ+cyl+gears+hwyFE, data = autoSub)
+summary(model4)
+```
+
+Here are the robust standard errors for model 4:
+
+```{r}
+coeftest(model4, vcov = vcovHC(model4, "HC3"))
+```
+
+The robust standard errors don't make any substantial changes, though the `displ` variable becomes less statistically significant when they are used.
+
+### Question 13
+We'll re-print the model here for convenience: 
+
+```{r}
+summary(model3)
+```
+
+Even though it wasn't requested, I'll also take a quick peek at the AIC and BIC values.
+
+```{r}
+AIC(model3)
+AIC(model4)
+BIC(model3)
+BIC(model4)
+```
+
+Overall, there are some minor improvements to model fit. The betas do not change substantially. The benefits are minimal because we did not address what is likely the largest concern here - omitted variable bias in the model that is driving the accuracy of the estimated values and thus the problems with the residuals.
