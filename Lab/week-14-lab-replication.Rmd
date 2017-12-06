@@ -120,7 +120,7 @@ filter(autoData, row_number() %in% bonferonniPoints)
 We should complete a similar diagnostic process for leverage. We can look for observations that are two times the average leverage:
 
 ```{r}
-leveragePoints <- which(hatvalues(model3) > (3*3)/1216)
+leveragePoints <- which(hatvalues(model3) > (2*3)/1216)
 filter(autoData, row_number() %in% leveragePoints)
 ```
 
